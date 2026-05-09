@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Chroma Lock</title>
+    <style>
+        :root {
+            --target-r: 0;
+            --target-g: 0;
+            --target-b: 0;
+            --glow-r: 255;
+            --glow-g: 255;
+            --glow-b: 255;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+            font-family: system-ui, sans-serif;
+        }
+
+        #game-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        #game-container.merged {
+            background: rgb(var(--glow-r), var(--glow-g), var(--glow-b)) !important;
+        }
+
+        #game-container.merged > * {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* Target Zone - Top Half */
+        #target-zone {
+            flex: 1;
+            background: rgb(var(--target-r), var(--target-g), var(--target-b));
+            transition: background 0.8s ease-out;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Result Zone - Bottom Half */
+        #result-zone {
+            flex: 1;
+            background: #111;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #current-color {
+            position: absolute;
+            inset: 0;
+            background: rgb(128, 128, 128);
+            transition: background 0.1s linear;
+        }
+
+        /* Sliders Container */
+        #sliders {
+            display: flex;
+            gap: 40px;
+            z-index: 10;
+            padding: 20px;
+        }
+
+        .slider-track {
+            width: 60px;
+            height: 280px;
+            position: relative;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .slider-fill {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            border-radius: 30px;
+            transition: height 0.05s linear;
+        }
+
+        #slider-r .slider-fill {
+            background: linear-gradient(to top, rgba(255, 0, 0, 0.8), rgba(255, 0, 0, 0.3));
+            box-shadow: 0 0 30px rgba(255, 0, 0, 0.6);
+        }
+
+        #slider-g .slider-fill {
+            background: linear-gradient(to top, rgba(0, 255, 0, 0.8), rgba(0, 255, 0, 0.3));
+            box-shadow: 0 0 30px rgba(0, 255, 0, 0.6);
+        }
+
+        #slider-b .slider-fill {
+            background: linear-gradient(to top, rgba(0, 100, 255, 0.8), rgba(0, 100, 255, 0.3));
+            box-shadow: 0 0 30px rgba(0, 100, 255, 0.6);
+        }
+
+        .slider-thumb {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            left: 50%;
+            transform: translateX(-50%);
+            cursor: grab;
+            z-index: 5;
+        }
+
+        #slider-r .slider-thumb {
+            background: radial-gradient(circle, #ff4444, #aa0000);
+            box-shadow: 0 0 20px rgba(255, 0, 0, 0.8);
+        }
+
+        #slider-g .slider-thumb {
+            background: radial-gradient(circle, #44ff44, #00aa00);
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.8);
+        }
+
+        #slider-b .slider-thumb {
+            background: radial-gradient(circle, #4488ff, #0022aa);
+            box-shadow: 0 0 20px rgba(0, 100, 255, 0.8);
+        }
+
+        .slider-thumb:active {
+            cursor: grabbing;
+        }
+
+        .slider-thumb.touching {
+            animation: pulse 0.6s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: translateX(-50%) scale(1); }
+            50% { transform: translateX(-50%) scale(1.15); }
+        }
+
+        /* Visual Guide Circle */
+        #guide-circle {
+            position: absolute;
+            width: 200px;
+            height: 200px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            pointer-events: none;
+        }
+
+        #guide-circle::before {
+            content: '';
+            position: absolute;
+            inset: -10px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* Success Flash */
+        #flash-overlay {
+            position: fixed;
+            inset: 0;
+            background: white;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        #flash-overlay.flash {
+            animation: flash 0.8s ease-out;
+        }
+
+        @keyframes flash {
+            0% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+
+        /* Subtle hint particles */
+        .hint-ring {
+            position: absolute;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            pointer-events: none;
+            animation: ring-pulse 2s ease-out infinite;
+        }
+
+        @keyframes ring-pulse {
+            0% { transform: scale(0.8); opacity: 0.5; }
+            100% { transform: scale(1.5); opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="target-zone">
+            <div id="guide-circle"></div>
+        </div>
+        <div id="result-zone">
+            <div id="current-color"></div>
+            <div id="sliders">
+                <div id="slider-r" class="slider-track">
+                    <div class="slider-fill" style="height: 50%"></div>
+                    <div class="slider-thumb" style="bottom: 50%"></div>
+                </div>
+                <div id="slider-g" class="slider-track">
+                    <div class="slider-fill" style="height: 50%"></div>
+                    <div class="slider-thumb" style="bottom: 50%"></div>
+                </div>
+                <div id="slider-b" class="slider-track">
+                    <div class="slider-fill" style="height: 50%"></div>
+                    <div class="slider-thumb" style="bottom: 50%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="flash-overlay"></div>
+
+    <script>
+        // Game State
+        const state = {
+            target: { r: 0, g: 0, b: 0 },
+            current: { r: 128, g: 128, b: 128 },
+            sliders: { r: 128, g: 128, b: 128 },
+            level: 1,
+            merged: false,
+            audioInitialized: false
+        };
+
+        // DOM Elements
+        const targetZone = document.getElementById('target-zone');
+        const resultZone = document.getElementById('result-zone');
+        const currentColor = document.getElementById('current-color');
+        const gameContainer = document.getElementById('game-container');
+        const flashOverlay = document.getElementById('flash-overlay');
+
+        const sliderConfigs = [
+            { id: 'slider-r', key: 'r', color: [255, 0, 0] },
+            { id: 'slider-g', key: 'g', color: [0, 255, 0] },
+            { id: 'slider-b', key: 'b', color: [0, 0, 255] }
+        ];
+
+        // Audio Context
+        let audioCtx = null;
+
+        function initAudio() {
+            if (state.audioInitialized) return;
+            try {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                state.audioInitialized = true;
+            } catch (e) {
+                console.log('Audio not supported');
+            }
+        }
+
+        function playChime() {
+            if (!audioCtx) return;
+
+            const now = audioCtx.currentTime;
+
+            // Create harmonic chord
+            const frequencies = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+
+            frequencies.forEach((freq, i) => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+
+                osc.type = 'sine';
+                osc.frequency.value = freq;
+
+                gain.gain.setValueAtTime(0, now + i * 0.05);
+                gain.gain.linearRampToValueAtTime(0.15, now + i * 0.05 + 0.1);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.05 + 1.5);
+
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                osc.start(now + i * 0.05);
+                osc.stop(now + i * 0.05 + 1.5);
+            });
+        }
+
+        // Generate random target color
+        function generateTarget() {
+            state.target = {
+                r: Math.floor(Math.random() * 256),
+                g: Math.floor(Math.random() * 256),
+                b: Math.floor(Math.random() * 256)
+            };
+            updateTargetDisplay();
+        }
+
+        function updateTargetDisplay() {
+            targetZone.style.setProperty('--target-r', state.target.r);
+            targetZone.style.setProperty('--target-g', state.target.g);
+            targetZone.style.setProperty('--target-b', state.target.b);
+            targetZone.style.background = `rgb(${state.target.r}, ${state.target.g}, ${state.target.b})`;
+        }
+
+        function updateCurrentColor() {
+            const { r, g, b } = state.current;
+            currentColor.style.background = `rgb(${r}, ${g}, ${b})`;
+        }
+
+        function checkMatch() {
+            if (state.merged) return;
+
+            const diffR = Math.abs(state.current.r - state.target.r);
+            const diffG = Math.abs(state.current.g - state.target.g);
+            const diffB = Math.abs(state.current.b - state.target.b);
+
+            const totalDiff = (diffR + diffG + diffB) / (255 * 3);
+
+            if (totalDiff < 0.01) {
+                triggerSuccess();
+            }
+        }
+
+        function triggerSuccess() {
+            state.merged = true;
+            initAudio();
+            playChime();
+
+            // Flash effect
+            flashOverlay.classList.add('flash');
+            gameContainer.classList.add('merged');
+
+            // Set merged color
+            gameContainer.style.setProperty('--glow-r', state.target.r);
+            gameContainer.style.setProperty('--glow-g', state.target.g);
+            gameContainer.style.setProperty('--glow-b', state.target.b);
+
+            // Transition to next level after delay
+            setTimeout(() => {
+                nextLevel();
+            }, 2000);
+        }
+
+        function nextLevel() {
+            state.level++;
+            state.merged = false;
+            state.sliders = { r: 128, g: 128, b: 128 };
+            state.current = { r: 128, g: 128, b: 128 };
+
+            // Reset visuals
+            gameContainer.classList.remove('merged');
+            flashOverlay.classList.remove('flash');
+
+            // Update slider positions
+            sliderConfigs.forEach(config => {
+                const track = document.getElementById(config.id);
+                const fill = track.querySelector('.slider-fill');
+                const thumb = track.querySelector('.slider-thumb');
+
+                fill.style.height = '50%';
+                thumb.style.bottom = '50%';
+            });
+
+            updateCurrentColor();
+            generateTarget();
+        }
+
+        // Slider interaction
+        function setupSliders() {
+            sliderConfigs.forEach(config => {
+                const track = document.getElementById(config.id);
+                const fill = track.querySelector('.slider-fill');
+                const thumb = track.querySelector('.slider-thumb');
+
+                let isDragging = false;
+                let startY = 0;
+                let startValue = 0;
+
+                function handleStart(e) {
+                    e.preventDefault();
+                    initAudio();
+                    isDragging = true;
+                    startY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+                    startValue = state.sliders[config.key];
+                    thumb.classList.add('touching');
+
+                    document.addEventListener('mousemove', handleMove);
+                    document.addEventListener('mouseup', handleEnd);
+                    document.addEventListener('touchmove', handleMove, { passive: false });
+                    document.addEventListener('touchend', handleEnd);
+                }
+
+                function handleMove(e) {
+                    if (!isDragging) return;
+                    e.preventDefault();
+
+                    const currentY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+                    const deltaY = startY - currentY;
+                    const trackHeight = track.offsetHeight;
+
+                    // Sensitivity: full range in ~200px
+                    const deltaValue = (deltaY / trackHeight) * 255;
+                    let newValue = Math.max(0, Math.min(255, startValue + deltaValue));
+
+                    state.sliders[config.key] = newValue;
+                    state.current[config.key] = newValue;
+
+                    const percent = (newValue / 255) * 100;
+                    fill.style.height = percent + '%';
+                    thumb.style.bottom = percent + '%';
+
+                    updateCurrentColor();
+                    checkMatch();
+                }
+
+                function handleEnd() {
+                    isDragging = false;
+                    thumb.classList.remove('touching');
+
+                    document.removeEventListener('mousemove', handleMove);
+                    document.removeEventListener('mouseup', handleEnd);
+                    document.removeEventListener('touchmove', handleMove);
+                    document.removeEventListener('touchend', handleEnd);
+                }
+
+                thumb.addEventListener('mousedown', handleStart);
+                thumb.addEventListener('touchstart', handleStart, { passive: false });
+            });
+        }
+
+        // Initialize
+        function init() {
+            setupSliders();
+            generateTarget();
+            updateCurrentColor();
+
+            // Add subtle ambient rings
+            for (let i = 0; i < 3; i++) {
+                const ring = document.createElement('div');
+                ring.className = 'hint-ring';
+                ring.style.width = '150px';
+                ring.style.height = '150px';
+                ring.style.animationDelay = `${i * 0.5}s`;
+                targetZone.appendChild(ring);
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
